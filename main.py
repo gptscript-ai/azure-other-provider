@@ -53,10 +53,14 @@ client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
 #     print("REQUEST BODY: ", body)
 #     return await call_next(request)
 
+@app.post("/")
+async def post_root():
+    return 'ok'
+
 
 @app.get("/")
-async def root():
-    return {"message": "Hello World"}
+async def get_root():
+    return 'ok'
 
 
 @app.get("/models")
