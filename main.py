@@ -9,8 +9,16 @@ from openai import OpenAI
 from openai._streaming import Stream
 from openai.types.chat import ChatCompletionChunk
 
-api_key = os.environ["MISTRAL_API_KEY"]
-endpoint = os.environ["MISTRAL_ENDPOINT"]
+if "MISTRAL_API_KEY" in os.environ:
+    api_key = os.environ["MISTRAL_API_KEY"]
+else:
+    raise SystemExit("MISTRAL_API_KEY not found in environment variables")
+
+if "MISTRAL_ENDPOINT" in os.environ:
+    endpoint = os.environ["MISTRAL_ENDPOINT"]
+else:
+    raise SystemExit("MISTRAL_ENDPOINT not found in environment variables")
+
 app = FastAPI()
 client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
 
