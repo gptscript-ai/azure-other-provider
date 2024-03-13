@@ -30,6 +30,11 @@ client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
 #     return await call_next(request)
 
 
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
+
+
 @app.get("/models")
 async def list_models() -> JSONResponse:
     try:
