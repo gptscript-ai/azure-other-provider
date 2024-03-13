@@ -1,9 +1,6 @@
 import json
 import os
 import re
-import sys
-import threading
-from contextlib import asynccontextmanager
 from typing import AsyncIterable
 
 from fastapi import FastAPI, Request
@@ -22,28 +19,28 @@ if "MISTRAL_ENDPOINT" in os.environ:
 else:
     raise SystemExit("MISTRAL_ENDPOINT not found in environment variables")
 
-
-class BackgroundTasks(threading.Thread):
-    async def run(self, *args, **kwargs):
-        while True:
-            try:
-                for _ in sys.stdin:
-                    pass
-            except:
-                "Closing background thread."
-                SystemExit(0)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    t = BackgroundTasks()
-    t.daemon = True
-    t.start()
-
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
+# class BackgroundTasks(threading.Thread):
+#     async def run(self, *args, **kwargs):
+#         while True:
+#             try:
+#                 for _ in sys.stdin:
+#                     pass
+#             except:
+#                 "Closing background thread."
+#                 SystemExit(0)
+#
+#
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     t = BackgroundTasks()
+#     t.daemon = True
+#     t.start()
+#
+#     yield
+#
+#
+# app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
 
 
