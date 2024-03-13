@@ -1,0 +1,3 @@
+name: service
+
+#!sys.daemon ${GPTSCRIPT_TOOL_DIR}/run.sh
