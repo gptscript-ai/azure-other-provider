@@ -13,7 +13,6 @@ api_key = os.environ["MISTRAL_API_KEY"]
 endpoint = os.environ["MISTRAL_ENDPOINT"]
 app = FastAPI()
 client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
-model = "azureai"
 
 
 # @app.middleware("http")
@@ -25,18 +24,25 @@ model = "azureai"
 
 @app.get("/models")
 async def list_models() -> JSONResponse:
-    return JSONResponse(content={"data": [{"id": model, "name": "Azure AI"}]})
+    try:
+        response = json.loads(client.models.list().json())
+        return JSONResponse(content=response)
+    except:
+        return JSONResponse(content={"data": [{"id": "mistral-large-latest", "name": "Azure AI"}]})
 
 
 @app.post("/chat/completions")
 async def oai_post(request: Request):
     data = await request.body()
     data = json.loads(data)
+
     try:
         tools = data["tools"]
     except Exception as e:
-        print("an error happened with tools: ", e)
+        print("No tools provided: ", e)
         tools = []
+
+    model = data["model"]
 
     try:
         messages = data["messages"]
@@ -47,11 +53,11 @@ async def oai_post(request: Request):
             if 'tool_call_id' in message.keys():
                 message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
     except Exception as e:
-        print("an error happened: ", e)
+        print("an error happened mapping tool_calls/tool_call_ids: ", e)
         messages = None
 
     res = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice="auto",
-                                         stream=True)
+                                         stream=True, extra_body={"random_seed": data["seed"]})
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
 
