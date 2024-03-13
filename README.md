@@ -17,5 +17,5 @@ pip install -r requirements.txt
 
 ```
 export OPENAI_BASE_URL=http://127.0.0.1:8000
-gptscript --default-model=azureai examples/bob.gpt
+gptscript --default-model=mistral-large-latest examples/bob.gpt
 ```
