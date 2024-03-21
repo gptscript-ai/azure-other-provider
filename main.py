@@ -44,11 +44,12 @@ app = FastAPI()
 client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
 
 
-# @app.middleware("http")
-# async def log_body(request: Request, call_next):
-#     body = await request.body()
-#     print("REQUEST BODY: ", body)
-#     return await call_next(request)
+@app.middleware("http")
+async def log_body(request: Request, call_next):
+    body = await request.body()
+    print("REQUEST BODY: ", body)
+    return await call_next(request)
+
 
 @app.post("/")
 async def post_root():
@@ -60,7 +61,7 @@ async def get_root():
     return 'ok'
 
 
-@app.get("/models")
+@app.get("/v1//models")
 async def list_models() -> JSONResponse:
     try:
         response = json.loads(client.models.list().json())
@@ -69,7 +70,7 @@ async def list_models() -> JSONResponse:
         return JSONResponse(content={"data": [{"id": "mistral-large-latest", "name": "Azure AI"}]})
 
 
-@app.post("/chat/completions")
+@app.post("/v1/chat/completions")
 async def oai_post(request: Request):
     data = await request.body()
     data = json.loads(data)
@@ -101,4 +102,5 @@ async def oai_post(request: Request):
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
     for chunk in stream:
+        print("CHUNK: ", chunk.json())
         yield "data: " + str(chunk.json()) + "\n\n"
