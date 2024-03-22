@@ -61,7 +61,7 @@ async def get_root():
     return 'ok'
 
 
-@app.get("/v1//models")
+@app.get("/v1/models")
 async def list_models() -> JSONResponse:
     try:
         response = json.loads(client.models.list().json())
