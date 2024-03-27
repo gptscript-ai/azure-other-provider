@@ -17,7 +17,7 @@ else:
 if "MISTRAL_ENDPOINT" in os.environ:
     endpoint = os.environ["MISTRAL_ENDPOINT"]
 else:
-    raise SystemExit("MISTRAL_ENDPOINT not found in environment variables")
+    endpoint = "https://api.mistral.ai"
 
 # class BackgroundTasks(threading.Thread):
 #     async def run(self, *args, **kwargs):
