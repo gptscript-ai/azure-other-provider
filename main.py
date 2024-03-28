@@ -9,7 +9,7 @@ from openai import OpenAI
 from openai._streaming import Stream
 from openai.types.chat import ChatCompletionChunk
 
-debug = True
+debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
 
 if "AZURE_API_KEY" in os.environ:
     api_key = os.environ["AZURE_API_KEY"]
@@ -86,6 +86,5 @@ async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[s
 
 if __name__ == "__main__":
     import uvicorn
-    debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
     uvicorn.run("main:app", host="127.0.0.1", port=int(os.environ.get("PORT", "8000")),
                 log_level="debug" if debug else "critical", reload=debug, access_log=debug)

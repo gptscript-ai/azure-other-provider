@@ -25,5 +25,6 @@ pip install -r requirements.txt
 
 ```
 export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export GPTSCRIPT_DEBUG=true
 gptscript --default-model=mistral-large-latest examples/bob.gpt
 ```
