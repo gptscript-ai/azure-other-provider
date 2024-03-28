@@ -1,16 +1,15 @@
-1. You need MISTRAL_ENDPOINT configured to the endpoint of your mistral deployment if using Azure
-2. You need MISTRAL_API_KEY configured to the API key of your mistral deployment if using Azure, or to your La
-   Plateforme API key.
+1. You need AZURE_ENDPOINT configured to the endpoint of your model deployment if on Azure
+2. You need AZURE_API_KEY configured to the API key of your model deployment on Azure
 
 ```
-export MISTRAL_ENDPOINT=https://<your-deployment>.<your-region>.inference.ai.azure.com
-export MISTRAL_API_KEY=<your-api-key>
+export AZURE_ENDPOINT=https://<your-deployment>.<your-region>.inference.ai.azure.com
+export AZURE_API_KEY=<your-api-key>
 ```
 
 ## Usage Example
 
 ```
-gptscript --default-model='mistral-large-latest from github.com/gptscript-ai/mistral-openai-shim' examples/helloworld.gpt
+gptscript --default-model='mistral-large-latest from github.com/gptscript-ai/azure-provider' examples/helloworld.gpt
 ```
 
 ## Development

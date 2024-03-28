@@ -9,65 +9,43 @@ from openai import OpenAI
 from openai._streaming import Stream
 from openai.types.chat import ChatCompletionChunk
 
-if "MISTRAL_API_KEY" in os.environ:
-    api_key = os.environ["MISTRAL_API_KEY"]
-else:
-    raise SystemExit("MISTRAL_API_KEY not found in environment variables")
+debug = True
 
-if "MISTRAL_ENDPOINT" in os.environ:
-    endpoint = os.environ["MISTRAL_ENDPOINT"]
+if "AZURE_API_KEY" in os.environ:
+    api_key = os.environ["AZURE_API_KEY"]
 else:
-    endpoint = "https://api.mistral.ai"
+    raise SystemExit("AZURE_API_KEY not found in environment variables")
 
-# class BackgroundTasks(threading.Thread):
-#     async def run(self, *args, **kwargs):
-#         while True:
-#             try:
-#                 for _ in sys.stdin:
-#                     pass
-#             except:
-#                 "Closing background thread."
-#                 SystemExit(0)
-#
-#
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     t = BackgroundTasks()
-#     t.daemon = True
-#     t.start()
-#
-#     yield
-#
-#
-# app = FastAPI(lifespan=lifespan)
+if "AZURE_ENDPOINT" in os.environ:
+    endpoint = os.environ["AZURE_ENDPOINT"]
+else:
+    raise SystemExit("AZURE_ENDPOINT is required")
+
 app = FastAPI()
 client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
+
+
+def log(*args):
+    if debug:
+        print(*args)
 
 
 @app.middleware("http")
 async def log_body(request: Request, call_next):
     body = await request.body()
-    print("REQUEST BODY: ", body)
+    log("REQUEST BODY: ", body)
     return await call_next(request)
-
-
-@app.post("/")
-async def post_root():
-    return 'ok'
 
 
 @app.get("/")
 async def get_root():
-    return 'ok'
+    return "ok"
 
 
 @app.get("/v1/models")
 async def list_models() -> JSONResponse:
-    try:
-        response = json.loads(client.models.list().json())
-        return JSONResponse(content=response)
-    except:
-        return JSONResponse(content={"data": [{"id": "mistral-large-latest", "name": "Azure AI"}]})
+    response = json.loads(client.models.list().json())
+    return JSONResponse(content=response)
 
 
 @app.post("/v1/chat/completions")
@@ -78,8 +56,8 @@ async def oai_post(request: Request):
     try:
         tools = data["tools"]
     except Exception as e:
-        print("No tools provided: ", e)
-        tools = []
+        log("No tools provided: ", e)
+        tools = None
 
     model = data["model"]
 
@@ -92,15 +70,22 @@ async def oai_post(request: Request):
             if 'tool_call_id' in message.keys():
                 message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
     except Exception as e:
-        print("an error happened mapping tool_calls/tool_call_ids: ", e)
+        log("an error happened mapping tool_calls/tool_call_ids: ", e)
         messages = None
 
     res = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice="auto",
-                                         stream=True, extra_body={"random_seed": data["seed"]})
+                                         stream=True)
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
     for chunk in stream:
-        print("CHUNK: ", chunk.json())
+        log("CHUNK: ", chunk.json())
         yield "data: " + str(chunk.json()) + "\n\n"
+
+
+if __name__ == "__main__":
+    import uvicorn
+    debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
+    uvicorn.run("main:app", host="127.0.0.1", port=int(os.environ.get("PORT", "8000")),
+                log_level="debug" if debug else "critical", reload=debug, access_log=debug)
