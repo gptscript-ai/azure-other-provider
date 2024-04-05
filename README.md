@@ -1,15 +1,19 @@
-1. You need AZURE_ENDPOINT configured to the endpoint of your model deployment if on Azure
-2. You need AZURE_API_KEY configured to the API key of your model deployment on Azure
+1. You must be authenticated with the Azure CLI
+2. You need the env variable `AZURE_SUBSCRIPTION_ID` to be configured
+3. You need the env variable `GPTSCRIPT_AZURE_RESOURCE_GROUP` to be configured
+4. You need the env variable `GPTSCRIPT_AZURE_WORKSPACE` to be configured
 
 ```
-export AZURE_ENDPOINT=https://<your-deployment>.<your-region>.inference.ai.azure.com
-export AZURE_API_KEY=<your-api-key>
+az login
+export AZURE_SUBSCRIPTION_ID=<your-subscription-key>
+export GPTSCRIPT_AZURE_RESOURCE_GROUP=<your-resource-group>
+export GPTSCRIPT_AZURE_WORKSPACE=<your-workspace>
 ```
 
 ## Usage Example
 
 ```
-gptscript --default-model='mistral-large-latest from github.com/gptscript-ai/azure-provider' examples/helloworld.gpt
+gptscript --default-model='Mistral-large from github.com/gptscript-ai/azure-other-provider' examples/helloworld.gpt
 ```
 
 ## Development
@@ -26,5 +30,5 @@ pip install -r requirements.txt
 ```
 export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
 export GPTSCRIPT_DEBUG=true
-gptscript --default-model=mistral-large-latest examples/bob.gpt
+gptscript --default-model=Mistral-large examples/bob.gpt
 ```

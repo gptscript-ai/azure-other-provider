@@ -1,5 +1,5 @@
-Name: Azure Provider
-Description: Model provider for Azure host models
+Name: Azure Other Provider
+Description: Model provider for non-OpenAI Azure hosted models
 Model Provider: true
 
 #!sys.daemon /usr/bin/env python3 ${GPTSCRIPT_TOOL_DIR}/main.py

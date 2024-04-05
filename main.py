@@ -1,8 +1,11 @@
 import json
 import os
-import re
+import sys
 from typing import AsyncIterable
 
+import requests
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.resource import ResourceManagementClient
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
@@ -11,23 +14,25 @@ from openai.types.chat import ChatCompletionChunk
 
 debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
 
-if "AZURE_API_KEY" in os.environ:
-    api_key = os.environ["AZURE_API_KEY"]
-else:
-    raise SystemExit("AZURE_API_KEY not found in environment variables")
-
-if "AZURE_ENDPOINT" in os.environ:
-    endpoint = os.environ["AZURE_ENDPOINT"]
-else:
-    raise SystemExit("AZURE_ENDPOINT is required")
-
-app = FastAPI()
-client = OpenAI(base_url=endpoint + "/v1", api_key=api_key)
-
 
 def log(*args):
     if debug:
         print(*args)
+
+
+app = FastAPI()
+credential = DefaultAzureCredential()
+if 'AZURE_SUBSCRIPTION_ID' not in os.environ:
+    print("Set AZURE_SUBSCRIPTION_ID environment variable")
+    sys.exit(1)
+else:
+    subscription_id = os.environ["AZURE_SUBSCRIPTION_ID"]
+
+token = credential.get_token("https://management.azure.com/.default")
+headers = {
+    "Authorization": f"Bearer {token.token}",
+    "Content-Type": "application/json"
+}
 
 
 @app.middleware("http")
@@ -42,14 +47,14 @@ async def get_root():
     return "ok"
 
 
+# Only needed when running standalone. With GPTScript, the `id` returned by this endpoint must match the model you are passing in.
 @app.get("/v1/models")
 async def list_models() -> JSONResponse:
-    response = json.loads(client.models.list().json())
-    return JSONResponse(content=response)
+    return JSONResponse(content={"data": [{"id": "gpt-4", "name": "Your model"}]})
 
 
 @app.post("/v1/chat/completions")
-async def oai_post(request: Request):
+async def chat_completions(request: Request):
     data = await request.body()
     data = json.loads(data)
 
@@ -57,23 +62,10 @@ async def oai_post(request: Request):
         tools = data["tools"]
     except Exception as e:
         log("No tools provided: ", e)
-        tools = None
-
-    model = data["model"]
-
-    try:
-        messages = data["messages"]
-        for message in messages:
-            if 'content' in message.keys() and message["content"].startswith("[TOOL_CALLS] "):
-                message["content"] = ""
-
-            if 'tool_call_id' in message.keys():
-                message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
-    except Exception as e:
-        log("an error happened mapping tool_calls/tool_call_ids: ", e)
-        messages = None
-
-    res = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice="auto",
+        tools = []
+    client = await get_azure_config(data["model"])
+    res = client.chat.completions.create(model=data["model"], messages=data["messages"], tools=tools,
+                                         tool_choice="auto",
                                          stream=True)
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
@@ -84,7 +76,130 @@ async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[s
         yield "data: " + str(chunk.json()) + "\n\n"
 
 
+async def list_resource_groups(client: ResourceManagementClient):
+    group_list = client.resource_groups.list()
+
+    column_width = 40
+    print("Resource Group".ljust(column_width) + "Location")
+    print("-" * (column_width * 2))
+    for group in list(group_list):
+        print(f"{group.name:<{column_width}}{group.location}")
+    print()
+
+
+async def list_serverless(client: ResourceManagementClient, resource_group: str):
+    filter = "resourceType eq 'Microsoft.MachineLearningServices/workspaces/serverlessEndpoints'"
+    resources = client.resources.list_by_resource_group(resource_group,
+                                                        filter=filter
+                                                        )
+
+    column_width = 40
+    print(f"Serverless Endpoints in {resource_group}")
+    print("Workspace".ljust(column_width) + "Model Name")
+    print("-" * (column_width * 2))
+    for resource in list(resources):
+        r = client.resources.get_by_id(resource_id=resource.id, api_version="2024-01-01-preview")
+        model_id = r.properties["modelSettings"]["modelId"]
+        last_slash_index = model_id.rfind('/')
+        if last_slash_index != -1:
+            model_id = model_id[last_slash_index + 1:]
+        workspace = resource.name.split("/")[0]
+        print(f"{workspace:<{column_width}}{model_id}")
+    print()
+
+
+async def list_online(client: ResourceManagementClient, resource_group: str):
+    filter = "resourceType eq 'Microsoft.MachineLearningServices/workspaces/onlineEndpoints'"
+    resources = client.resources.list_by_resource_group(resource_group,
+                                                        filter=filter
+                                                        )
+
+    column_width = 40
+    print(f"Online Endpoints in {resource_group}")
+    print("Workspace".ljust(column_width) + "Model Name")
+    print("-" * (column_width * 2))
+    for resource in list(resources):
+        r = client.resources.get_by_id(resource_id=resource.id, api_version="2024-01-01-preview")
+        model_id = r.properties["traffic"].keys()
+        model_id = list(model_id)[0]
+        last_dash_index = model_id.rfind('-')
+        if last_dash_index != -1:
+            model_id = model_id[:last_dash_index]
+        workspace = resource.name.split("/")[0]
+        print(f"{workspace:<{column_width}}{model_id}")
+    print()
+
+
+async def get_api_key(resource) -> str:
+    response = requests.post(
+        f"https://management.azure.com{resource.id}/listKeys?api-version=2024-01-01-preview",
+        headers=headers)
+    return response.json()["primaryKey"]
+
+
+async def get_azure_config(model_name: str | None) -> OpenAI:
+    resource_client = ResourceManagementClient(credential=credential, subscription_id=subscription_id)
+    model_id: str
+    endpoint: str
+    api_key: str
+
+    if "GPTSCRIPT_AZURE_RESOURCE_GROUP" in os.environ:
+        resource_group = os.environ["GPTSCRIPT_AZURE_RESOURCE_GROUP"]
+    else:
+        await list_resource_groups(resource_client)
+        print("Set GPTSCRIPT_AZURE_RESOURCE_GROUP environment variable")
+        sys.exit(0)
+
+    if "GPTSCRIPT_AZURE_WORKSPACE" in os.environ and model_name != None:
+        filter = "resourceType eq 'Microsoft.MachineLearningServices/workspaces/onlineEndpoints' or resourceType eq 'Microsoft.MachineLearningServices/workspaces/serverlessEndpoints'"
+        resources = resource_client.resources.list_by_resource_group(resource_group,
+                                                                     filter=filter
+                                                                     )
+        for resource in list(resources):
+            selected_resource = resource
+            r = resource_client.resources.get_by_id(resource_id=resource.id, api_version="2024-01-01-preview")
+            if r.type == "Microsoft.MachineLearningServices/workspaces/serverlessEndpoints":
+                model_id = r.properties["modelSettings"]["modelId"]
+                last_slash_index = model_id.rfind('/')
+                if last_slash_index != -1:
+                    model_id = model_id[last_slash_index + 1:]
+                if model_id == model_name:
+                    endpoint = r.properties["inferenceEndpoint"]["uri"]
+                    break
+            elif r.type == "Microsoft.MachineLearningServices/workspaces/onlineEndpoints":
+                model_id = r.properties["traffic"].keys()
+                model_id = list(model_id)[0]
+                last_dash_index = model_id.rfind('-')
+                if last_dash_index != -1:
+                    model_id = model_id[:last_dash_index]
+                if model_id == model_name:
+                    endpoint = r.properties["scoringUri"]
+                    last_slash_index = endpoint.rfind('/')
+                    if last_slash_index != -1:
+                        endpoint = endpoint[:last_slash_index]
+                    break
+
+    else:
+        await list_serverless(resource_client, resource_group)
+        await list_online(resource_client, resource_group)
+        print("Set GPTSCRIPT_AZURE_WORKSPACE environment variables")
+        sys.exit(0)
+
+    if 'model_id' not in locals():
+        print(f"Did not find any matches for model name {model_name}.")
+        sys.exit(1)
+
+    api_key = await get_api_key(resource=selected_resource)
+    client = OpenAI(
+        base_url=endpoint + "/v1",
+        api_key=api_key,
+    )
+
+    return client
+
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="127.0.0.1", port=int(os.environ.get("PORT", "8000")),
                 log_level="debug" if debug else "critical", reload=debug, access_log=debug)
