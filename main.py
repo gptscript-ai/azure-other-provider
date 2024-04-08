@@ -5,9 +5,11 @@ from typing import AsyncIterable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
 from openai import OpenAI
 from openai._streaming import Stream
-from openai.types.chat import ChatCompletionChunk
+from openai.types.chat import ChatCompletionChunk, ChatCompletionMessage
+from openai._types import NOT_GIVEN
 
 debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
 
@@ -44,7 +46,7 @@ async def get_root():
 
 @app.get("/v1/models")
 async def list_models() -> JSONResponse:
-    response = json.loads(client.models.list().json())
+    response = json.loads(client.models.list().model_dump_json())
     return JSONResponse(content=response)
 
 
@@ -64,24 +66,45 @@ async def oai_post(request: Request):
     try:
         messages = data["messages"]
         for message in messages:
+            print(f"message: \n{message}\n")
             if 'content' in message.keys() and message["content"].startswith("[TOOL_CALLS] "):
                 message["content"] = ""
 
             if 'tool_call_id' in message.keys():
                 message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
+
+            if 'role' in message.keys() and message['role'] == 'assitant':
+                message = ChatCompletionMessage.model_validate(message)
+            
     except Exception as e:
         log("an error happened mapping tool_calls/tool_call_ids: ", e)
         messages = None
 
-    res = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice="auto",
-                                         stream=True)
+    temperature = data.get("temperature", NOT_GIVEN)
+    if temperature is not NOT_GIVEN:
+        temperature = float(temperature)
+
+    stream = data.get("stream", False)
+
+    res = client.chat.completions.create(
+        model=model, 
+        messages=messages, 
+        tools=tools, 
+        tool_choice="auto",
+        temperature=temperature,
+        stream=stream
+    )
+
+    if not stream:
+        return JSONResponse(content=jsonable_encoder(res))
+
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
     for chunk in stream:
-        log("CHUNK: ", chunk.json())
-        yield "data: " + str(chunk.json()) + "\n\n"
+        log("CHUNK: ", chunk.model_dump_json())
+        yield "data: " + str(chunk.model_dump_json()) + "\n\n"
 
 
 if __name__ == "__main__":
