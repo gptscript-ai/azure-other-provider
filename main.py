@@ -66,7 +66,6 @@ async def oai_post(request: Request):
     try:
         messages = data["messages"]
         for message in messages:
-            print(f"message: \n{message}\n")
             if 'content' in message.keys() and message["content"].startswith("[TOOL_CALLS] "):
                 message["content"] = ""
 
@@ -103,7 +102,17 @@ async def oai_post(request: Request):
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
     for chunk in stream:
+        for choice in chunk.choices:
+            if choice.delta.tool_calls is None:
+                continue
+
+            for tool_call in choice.delta.tool_calls:
+                tool_call.index = tool_call.index or 0
+                tool_call.type = tool_call.type or 'function'
+                tool_call.id = f"call_{tool_call.function.name}_{tool_call.index}"
+
         log("CHUNK: ", chunk.model_dump_json())
+
         yield "data: " + str(chunk.model_dump_json()) + "\n\n"
 
 
