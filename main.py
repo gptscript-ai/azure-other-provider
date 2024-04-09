@@ -24,18 +24,6 @@ def log(*args):
 
 
 app = FastAPI()
-credential = DefaultAzureCredential()
-if 'AZURE_SUBSCRIPTION_ID' not in os.environ:
-    print("Set AZURE_SUBSCRIPTION_ID environment variable")
-    sys.exit(1)
-else:
-    subscription_id = os.environ["AZURE_SUBSCRIPTION_ID"]
-
-token = credential.get_token("https://management.azure.com/.default")
-headers = {
-    "Authorization": f"Bearer {token.token}",
-    "Content-Type": "application/json"
-}
 
 
 @app.middleware("http")
@@ -53,7 +41,7 @@ async def get_root():
 # Only needed when running standalone. With GPTScript, the `id` returned by this endpoint must match the model you are passing in.
 @app.get("/v1/models")
 async def list_models() -> JSONResponse:
-    return JSONResponse(content={"data": [{"id": "gpt-4", "name": "Your model"}]})
+    return JSONResponse(content={"data": [{"id": "Mistral-large", "name": "Your model"}]})
 
 
 @app.post("/v1/chat/completions")
@@ -174,7 +162,12 @@ async def list_online(client: ResourceManagementClient, resource_group: str):
     print()
 
 
-async def get_api_key(resource) -> str:
+async def get_api_key(credential, resource) -> str:
+    token = credential.get_token("https://management.azure.com/.default")
+    headers = {
+        "Authorization": f"Bearer {token.token}",
+        "Content-Type": "application/json"
+    }
     response = requests.post(
         f"https://management.azure.com{resource.id}/listKeys?api-version=2024-01-01-preview",
         headers=headers)
@@ -182,6 +175,13 @@ async def get_api_key(resource) -> str:
 
 
 async def get_azure_config(model_name: str | None) -> OpenAI:
+    credential = DefaultAzureCredential()
+    if 'AZURE_SUBSCRIPTION_ID' not in os.environ:
+        print("Set AZURE_SUBSCRIPTION_ID environment variable")
+        sys.exit(1)
+    else:
+        subscription_id = os.environ["AZURE_SUBSCRIPTION_ID"]
+
     resource_client = ResourceManagementClient(credential=credential, subscription_id=subscription_id)
     model_id: str
     endpoint: str
@@ -233,7 +233,7 @@ async def get_azure_config(model_name: str | None) -> OpenAI:
         print(f"Did not find any matches for model name {model_name}.")
         sys.exit(1)
 
-    api_key = await get_api_key(resource=selected_resource)
+    api_key = await get_api_key(credential=credential, resource=selected_resource)
     client = OpenAI(
         base_url=endpoint + "/v1",
         api_key=api_key,
