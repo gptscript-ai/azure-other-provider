@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from typing import AsyncIterable
 
@@ -7,10 +8,12 @@ import requests
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from openai._streaming import Stream
-from openai.types.chat import ChatCompletionChunk
+from openai._types import NOT_GIVEN
+from openai.types.chat import ChatCompletionChunk, ChatCompletionMessage
 
 debug = os.environ.get("GPTSCRIPT_DEBUG", "false") == "true"
 
@@ -63,17 +66,58 @@ async def chat_completions(request: Request):
     except Exception as e:
         log("No tools provided: ", e)
         tools = []
+
+    model = data['model']
+    try:
+        messages = data["messages"]
+        for message in messages:
+            if 'content' in message.keys() and message["content"].startswith("[TOOL_CALLS] "):
+                message["content"] = ""
+
+            if 'tool_call_id' in message.keys():
+                message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
+
+            if 'role' in message.keys() and message['role'] == 'assitant':
+                message = ChatCompletionMessage.model_validate(message)
+
+    except Exception as e:
+        log("an error happened mapping tool_calls/tool_call_ids: ", e)
+        messages = None
+
+    temperature = data.get("temperature", NOT_GIVEN)
+    if temperature is not NOT_GIVEN:
+        temperature = float(temperature)
+
+    stream = data.get("stream", False)
+
     client = await get_azure_config(data["model"])
-    res = client.chat.completions.create(model=data["model"], messages=data["messages"], tools=tools,
-                                         tool_choice="auto",
-                                         stream=True)
+    res = client.chat.completions.create(
+        model=data["model"],
+        messages=data["messages"],
+        tools=tools,
+        tool_choice="auto",
+        temperature=temperature,
+        stream=stream)
+
+    if not stream:
+        return JSONResponse(content=jsonable_encoder(res))
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
     for chunk in stream:
-        log("CHUNK: ", chunk.json())
-        yield "data: " + str(chunk.json()) + "\n\n"
+        for choice in chunk.choices:
+            if choice.delta.tool_calls is None:
+                continue
+
+            for tool_call in choice.delta.tool_calls:
+                tool_call.index = tool_call.index or 0
+                tool_call.type = tool_call.type or 'function'
+                tool_call.id = f"call_{tool_call.function.name}_{tool_call.index}"
+
+        log("CHUNK: ", chunk.model_dump_json())
+
+        yield "data: " + str(chunk.model_dump_json()) + "\n\n"
 
 
 async def list_resource_groups(client: ResourceManagementClient):
