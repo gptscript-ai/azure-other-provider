@@ -10,8 +10,7 @@ from azure.mgmt.resource import ResourceManagementClient
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
-from openai import OpenAI
-from openai._streaming import Stream
+from openai import OpenAI, Stream
 from openai._types import NOT_GIVEN
 from openai.types.chat import ChatCompletionChunk, ChatCompletionMessage
 
@@ -24,6 +23,15 @@ def log(*args):
 
 
 app = FastAPI()
+
+endpoint: str
+api_key: str
+
+if 'GPTSCRIPT_AZURE_ENDPOINT' in os.environ:
+    endpoint = os.environ["GPTSCRIPT_AZURE_ENDPOINT"]
+
+if 'GPTSCRIPT_AZURE_API_KEY' in os.environ:
+    api_key = os.environ["GPTSCRIPT_AZURE_API_KEY"]
 
 
 @app.middleware("http")
@@ -78,7 +86,13 @@ async def chat_completions(request: Request):
 
     stream = data.get("stream", False)
 
-    client = await get_azure_config(data["model"])
+    if 'endpoint' not in globals() and 'api_key' not in globals():
+        client = await get_azure_config(data["model"])
+    else:
+        client = OpenAI(
+            base_url=endpoint + "/v1",
+            api_key=api_key)
+
     res = client.chat.completions.create(
         model=data["model"],
         messages=data["messages"],
@@ -89,6 +103,7 @@ async def chat_completions(request: Request):
 
     if not stream:
         return JSONResponse(content=jsonable_encoder(res))
+
     return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
 
 
@@ -184,8 +199,8 @@ async def get_azure_config(model_name: str | None) -> OpenAI:
 
     resource_client = ResourceManagementClient(credential=credential, subscription_id=subscription_id)
     model_id: str
-    endpoint: str
-    api_key: str
+    global endpoint
+    global api_key
 
     if "GPTSCRIPT_AZURE_RESOURCE_GROUP" in os.environ:
         resource_group = os.environ["GPTSCRIPT_AZURE_RESOURCE_GROUP"]
