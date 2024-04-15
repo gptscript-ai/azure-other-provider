@@ -157,7 +157,7 @@ async def get_azure_config(model_name: str | None) -> Config | None:
     else:
         await list_serverless(resource_client, resource_group)
         await list_online(resource_client, resource_group)
-        print("Set GPTSCRIPT_AZURE_WORKSPACE environment variables", file=sys.stderr)
+        print("Set GPTSCRIPT_AZURE_WORKSPACE environment variable", file=sys.stderr)
         return None
 
     if 'model_id' not in locals():
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     # az login
     command = ["az", "login", "--only-show-errors", "-o",
                "none"]
-    result = subprocess.run(command, stdin=None)
+    subprocess.run(command, stdin=None)
 
     # get model name
     command = ["gptscript", "--quiet=true", "--disable-cache", "sys.prompt",
@@ -210,7 +210,6 @@ if __name__ == "__main__":
     if result.returncode != 0:
         print("Failed to run sys.prompt.", file=sys.stderr)
         sys.exit(1)
-
     try:
         resp = json.loads(result.stdout.strip())
         azure_subscription_id = resp["id"]
