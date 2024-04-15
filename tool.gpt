@@ -1,5 +1,6 @@
 Name: Azure Other Provider
 Description: Model provider for non-OpenAI Azure hosted models
 Model Provider: true
+credential: github.com/gptscript-ai/azure-other-provider/credential.gpt
 
 #!sys.daemon /usr/bin/env python3 ${GPTSCRIPT_TOOL_DIR}/main.py
