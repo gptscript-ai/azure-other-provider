@@ -76,6 +76,9 @@ async def chat_completions(request: Request):
     stream = data.get("stream", False)
 
     config = await helpers.get_azure_config(data["model"])
+    if config == None:
+        raise HTTPException(status_code=400,
+                            detail="Azure config not found. Please ensure you have configured the environment variables correctly.")
 
     client = helpers.client(
         endpoint=config.endpoint,
@@ -96,7 +99,14 @@ async def chat_completions(request: Request):
 
         return StreamingResponse(convert_stream(res), media_type="application/x-ndjson")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error occurred: {e}")
+        try:
+            log("Error occurred: ", e.__dict__)
+            error_code = e.status_code
+            error_message = e.message
+        except:
+            error_code = 500
+            error_message = str(e)
+        raise HTTPException(status_code=error_code, detail=f"Error occurred: {error_message}")
 
 
 async def convert_stream(stream: Stream[ChatCompletionChunk]) -> AsyncIterable[str]:
