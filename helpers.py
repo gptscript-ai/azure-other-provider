@@ -183,9 +183,14 @@ if __name__ == "__main__":
     import asyncio
 
     # az login
-    command = ["az", "login", "--only-show-errors", "-o",
-               "none"]
-    result = subprocess.run(command, stdin=None)
+    try:
+        command = ["az", "login", "--only-show-errors", "-o",
+                   "none"]
+        result = subprocess.run(command, stdin=None)
+    except FileNotFoundError:
+        print("Azure CLI not found. Please install it.", file=sys.stderr)
+        sys.exit(1)
+        
     if result.returncode != 0:
         print("Failed to login to Azure.", file=sys.stderr)
         sys.exit(1)
