@@ -22,6 +22,16 @@ def log(*args):
 
 app = FastAPI()
 
+system: str = """
+You are task oriented system.
+You receive input from a user, process the input from the given instructions, and then output the result.
+Your objective is to provide consistent and correct results.
+Call the provided tools as needed to complete the task.
+You do not need to explain the steps taken, only provide the result to the given instructions.
+You are referred to as a tool.
+You don't move to the next step until you have a result.
+"""
+
 
 @app.middleware("http")
 async def log_body(request: Request, call_next):
@@ -62,8 +72,10 @@ async def chat_completions(request: Request):
             if 'tool_call_id' in message.keys():
                 message["name"] = re.sub(r'^call_(.*)_\d$', r'\1', message["tool_call_id"])
 
-            if 'role' in message.keys() and message['role'] == 'assitant':
+            if 'role' in message.keys() and message['role'] == 'assistant':
                 message = ChatCompletionMessage.model_validate(message)
+
+        messages.insert(0, ChatCompletionMessage(content=system, role="system"))
 
     except Exception as e:
         log("an error happened mapping tool_calls/tool_call_ids: ", e)
