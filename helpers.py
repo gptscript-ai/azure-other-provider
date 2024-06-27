@@ -91,15 +91,12 @@ async def get_api_key(credential, resource) -> str:
     return response.json()["primaryKey"]
 
 
-async def get_azure_config(model_name: str | None) -> Config | None:
+async def get_azure_config(model_name: str | None = None,
+                           subscription_id: str | None = None,
+                           resource_group: str | None = None,
+                           workspace: str | None = None) -> Config | None:
     global endpoint
     global api_key
-
-    if 'GPTSCRIPT_AZURE_ENDPOINT' in os.environ:
-        endpoint = os.environ["GPTSCRIPT_AZURE_ENDPOINT"]
-
-    if 'GPTSCRIPT_AZURE_API_KEY' in os.environ:
-        api_key = os.environ["GPTSCRIPT_AZURE_API_KEY"]
 
     if 'endpoint' in globals() and 'api_key' in globals():
         return Config(
@@ -109,27 +106,24 @@ async def get_azure_config(model_name: str | None) -> Config | None:
 
     credential = DefaultAzureCredential()
 
-    if 'AZURE_SUBSCRIPTION_ID' not in os.environ:
-        print("Set AZURE_SUBSCRIPTION_ID environment variable", file=sys.stderr)
+    if subscription_id is None:
+        print("Please set your Azure Subscription ID.", file=sys.stderr)
         return None
-    else:
-        subscription_id = os.environ["AZURE_SUBSCRIPTION_ID"]
 
     resource_client = ResourceManagementClient(credential=credential, subscription_id=subscription_id)
     model_id: str
 
-    if "GPTSCRIPT_AZURE_RESOURCE_GROUP" in os.environ:
-        resource_group = os.environ["GPTSCRIPT_AZURE_RESOURCE_GROUP"]
-    else:
+    if resource_group is None:
+        print("Please select an Azure Resource Group.", file=sys.stderr)
         await list_resource_groups(resource_client)
-        print("Set GPTSCRIPT_AZURE_RESOURCE_GROUP environment variable", file=sys.stderr)
         return None
 
-    if "GPTSCRIPT_AZURE_WORKSPACE" in os.environ and model_name != None:
+    if workspace is not None and model_name is not None:
         filter = "resourceType eq 'Microsoft.MachineLearningServices/workspaces/onlineEndpoints' or resourceType eq 'Microsoft.MachineLearningServices/workspaces/serverlessEndpoints'"
         resources = resource_client.resources.list_by_resource_group(resource_group,
                                                                      filter=filter
                                                                      )
+
         for resource in list(resources):
             selected_resource = resource
             r = resource_client.resources.get_by_id(resource_id=resource.id, api_version="2024-01-01-preview")
@@ -138,7 +132,7 @@ async def get_azure_config(model_name: str | None) -> Config | None:
                 last_slash_index = model_id.rfind('/')
                 if last_slash_index != -1:
                     model_id = model_id[last_slash_index + 1:]
-                if model_id == model_name:
+                if model_id.lower() == model_name.lower():
                     endpoint = r.properties["inferenceEndpoint"]["uri"]
                     break
             elif r.type == "Microsoft.MachineLearningServices/workspaces/onlineEndpoints":
@@ -147,7 +141,7 @@ async def get_azure_config(model_name: str | None) -> Config | None:
                 last_dash_index = model_id.rfind('-')
                 if last_dash_index != -1:
                     model_id = model_id[:last_dash_index]
-                if model_id == model_name:
+                if model_id.lower() == model_name.lower():
                     endpoint = r.properties["scoringUri"]
                     last_slash_index = endpoint.rfind('/')
                     if last_slash_index != -1:
@@ -155,9 +149,9 @@ async def get_azure_config(model_name: str | None) -> Config | None:
                     break
 
     else:
+        print("Please select an Azure Workspace.", file=sys.stderr)
         await list_serverless(resource_client, resource_group)
         await list_online(resource_client, resource_group)
-        print("Set GPTSCRIPT_AZURE_WORKSPACE environment variable", file=sys.stderr)
         return None
 
     if 'model_id' not in locals():
@@ -181,6 +175,22 @@ def client(endpoint: str, api_key: str) -> OpenAI:
 
 if __name__ == "__main__":
     import asyncio
+    from gptscript.gptscript import GPTScript
+    from gptscript.opts import Options
+
+    gptscript = GPTScript()
+
+
+    async def prompt(tool_input) -> dict:
+        run = gptscript.run(
+            tool_path="sys.prompt",
+            opts=Options(
+                input=json.dumps(tool_input),
+            )
+        )
+        output = await run.text()
+        return json.loads(output)
+
 
     # az login
     try:
@@ -190,85 +200,61 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print("Azure CLI not found. Please install it.", file=sys.stderr)
         sys.exit(1)
-        
+
     if result.returncode != 0:
         print("Failed to login to Azure.", file=sys.stderr)
         sys.exit(1)
 
     # get model name
-    command = ["gptscript", "--quiet=true", "--disable-cache", "sys.prompt",
-               "{\"message\":\"Enter the name of the model:\", \"fields\":\"name\"}"]
-    result = subprocess.run(command, stdin=None, stdout=subprocess.PIPE, text=True)
-
-    if result.returncode != 0:
-        print("Failed to run sys.prompt.", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        resp = json.loads(result.stdout.strip())
-        model_name = resp["name"]
-    except Exception as e:
-        print('Failed to get model name from sys.prompt', file=sys.stderr)
+    tool_input = {
+        "message": "Enter the name of the model:",
+        "fields": "name",
+        "sensitive": "false",
+    }
+    result = asyncio.run(prompt(tool_input))
+    model_name = result["name"]
 
     # get azure subscription id
-    command = ["gptscript", "--quiet=true", "--disable-cache", "sys.prompt",
-               "{\"message\":\"Enter your azure subscription id:\", \"fields\":\"id\"}"]
-    result = subprocess.run(command, stdin=None, stdout=subprocess.PIPE, text=True)
+    tool_input = {
+        "message": "Enter your azure subscription id:",
+        "fields": "id",
+        "sensitive": "false",
+    }
+    result = asyncio.run(prompt(tool_input))
+    azure_subscription_id = result["id"]
 
-    if result.returncode != 0:
-        print("Failed to run sys.prompt.", file=sys.stderr)
-        sys.exit(1)
-    try:
-        resp = json.loads(result.stdout.strip())
-        azure_subscription_id = resp["id"]
-        os.environ["AZURE_SUBSCRIPTION_ID"] = azure_subscription_id
-    except Exception as e:
-        print('Failed to get azure subscription id from sys.prompt', file=sys.stderr)
-
-    loop = asyncio.get_event_loop()
-    config = loop.run_until_complete(get_azure_config(model_name))
+    config = asyncio.run(get_azure_config(model_name=model_name, subscription_id=azure_subscription_id))
 
     # get resource group
-    command = ["gptscript", "--quiet=true", "--disable-cache", "sys.prompt",
-               "{\"message\":\"Enter your azure resource group name:\", \"fields\":\"name\"}"]
-    result = subprocess.run(command, stdin=None, stdout=subprocess.PIPE, text=True)
+    tool_input = {
+        "message": "Enter your azure resource group name:",
+        "fields": "name",
+        "sensitive": "false",
+    }
+    result = asyncio.run(prompt(tool_input))
+    azure_resource_group = result["name"]
 
-    if result.returncode != 0:
-        print("Failed to run sys.prompt.", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        resp = json.loads(result.stdout.strip())
-        azure_resource_group = resp["name"]
-        os.environ["GPTSCRIPT_AZURE_RESOURCE_GROUP"] = azure_resource_group
-    except Exception as e:
-        print('Failed to get azure resource group from sys.prompt', file=sys.stderr)
-
-    config = loop.run_until_complete(get_azure_config(model_name))
+    config = asyncio.run(get_azure_config(model_name=model_name, subscription_id=azure_subscription_id,
+                                          resource_group=azure_resource_group))
 
     # get workspace
-    command = ["gptscript", "--quiet=true", "--disable-cache", "sys.prompt",
-               "{\"message\":\"Enter your azure workspace name:\", \"fields\":\"name\"}"]
-    result = subprocess.run(command, stdin=None, stdout=subprocess.PIPE, text=True)
+    tool_input = {
+        "message": "Enter your azure workspace name:",
+        "fields": "name",
+        "sensitive": "false",
+    }
+    result = asyncio.run(prompt(tool_input))
+    azure_workspace_name = result["name"]
 
-    if result.returncode != 0:
-        print("Failed to run sys.prompt.", file=sys.stderr)
-        sys.exit(1)
+    config = asyncio.run(get_azure_config(model_name=model_name, subscription_id=azure_subscription_id,
+                                          resource_group=azure_resource_group, workspace=azure_workspace_name))
 
-    try:
-        resp = json.loads(result.stdout.strip())
-        azure_workspace_name = resp["name"]
-        os.environ["GPTSCRIPT_AZURE_WORKSPACE"] = azure_workspace_name
-    except Exception as e:
-        print('Failed to get azure workspace name from sys.prompt', file=sys.stderr)
-
-    config = loop.run_until_complete(get_azure_config(model_name))
-
-    config = {
+    env = {
         "env": {
             "GPTSCRIPT_AZURE_API_KEY": config.api_key,
             "GPTSCRIPT_AZURE_ENDPOINT": config.endpoint,
         }
     }
 
-    print(json.dumps(config))
+    gptscript.close()
+    print(json.dumps(env))
