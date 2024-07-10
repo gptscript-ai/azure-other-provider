@@ -98,6 +98,10 @@ async def get_azure_config(model_name: str | None = None,
     global endpoint
     global api_key
 
+    if 'GPTSCRIPT_AZURE_ENDPOINT' in os.environ and 'GPTSCRIPT_AZURE_API_KEY' in os.environ:
+        endpoint = os.environ['GPTSCRIPT_AZURE_ENDPOINT']
+        api_key = os.environ['GPTSCRIPT_AZURE_API_KEY']
+
     if 'endpoint' in globals() and 'api_key' in globals():
         return Config(
             endpoint=endpoint,
